@@ -4,31 +4,38 @@ plugins {
     id("maven-publish")
 }
 
-java {
-	sourceCompatibility = JavaVersion.VERSION_17
-	targetCompatibility = JavaVersion.VERSION_17
-}
-
-allprojects {
-	group = "com.deathmotion.adventure.binary.serializer"
-	version = "1.0.0"
-}
-
 repositories {
 	mavenCentral()
 }
 
 dependencies {
-	compileOnlyApi("org.jetbrains:annotations:24.0.0")
-	implementation("net.kyori:adventure-api:4.19.0")
+	compileOnlyApi(libs.jetbrains.annotations)
+	implementation(libs.adventure.api)
 
-	testImplementation("net.kyori:adventure-nbt:4.19.0")
-	testImplementation("org.junit.jupiter:junit-jupiter-api:5.12.0")
-	testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.12.0")
+	testImplementation(libs.adventure.nbt)
+	testImplementation(libs.junit.jupiter.api)
+	testRuntimeOnly(libs.junit.jupiter.engine)
 }
 
-tasks.withType<Test> {
-	useJUnitPlatform()
+group = "com.deathmotion.adventure.binary.serializer"
+version = "1.0.0"
+
+java {
+	toolchain.languageVersion = JavaLanguageVersion.of(21)
+	disableAutoTargetJvm()
+}
+
+tasks {
+	withType<JavaCompile> {
+		options.encoding = Charsets.UTF_8.name()
+		options.release = 17
+	}
+
+	withType<Test> {
+		useJUnitPlatform()
+	}
+
+	defaultTasks("build")
 }
 
 publishing {
