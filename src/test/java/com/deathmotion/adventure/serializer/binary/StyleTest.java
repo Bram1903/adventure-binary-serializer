@@ -38,6 +38,16 @@ import java.util.UUID;
 class StyleTest extends ComponentTest {
     private static final Key FANCY_FONT = Key.key("kyori", "kittens");
 
+    private static Style showItemStyle(final int count) {
+        return Style.style()
+                .hoverEvent(HoverEvent.showItem(HoverEvent.ShowItem.of(
+                        Key.key(Key.MINECRAFT_NAMESPACE, "stone"),
+                        count,
+                        null // TODO: test for NBT?
+                )))
+                .build();
+    }
+
     private void test(Style style) {
         this.test(Component.text("hjhagsd").style(style));
     }
@@ -104,16 +114,6 @@ class StyleTest extends ComponentTest {
     void testShowItemHoverEvent() {
         this.test(showItemStyle(1));
         this.test(showItemStyle(2));
-    }
-
-    private static Style showItemStyle(final int count) {
-        return Style.style()
-                .hoverEvent(HoverEvent.showItem(HoverEvent.ShowItem.of(
-                        Key.key(Key.MINECRAFT_NAMESPACE, "stone"),
-                        count,
-                        null // TODO: test for NBT?
-                )))
-                .build();
     }
 
 }

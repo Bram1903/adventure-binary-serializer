@@ -9,11 +9,11 @@ public class ComponentTest {
 
     public void test(Component component) {
         try {
-            byte[] serialized = BinaryComponentSerializer.INSTANCE.serialize(component);
-            Component result = BinaryComponentSerializer.INSTANCE.deserialize(serialized);
+            byte[] serialized = BinaryComponentSerializer.binary().serialize(component);
+            Component result = BinaryComponentSerializer.binary().deserialize(serialized);
 
             Assertions.assertEquals(component, result);
-        } catch(IOException e) {
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }

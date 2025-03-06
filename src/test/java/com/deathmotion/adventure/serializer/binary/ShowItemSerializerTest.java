@@ -52,7 +52,7 @@ class ShowItemSerializerTest extends ComponentTest {
         HoverEventSource<?> hoverEvent = HoverEvent.showItem(item, 1, tag);
 
         this.test(
-            Component.text("ajshd").style(Style.style().hoverEvent(hoverEvent).build())
+                Component.text("ajshd").style(Style.style().hoverEvent(hoverEvent).build())
         );
     }
 

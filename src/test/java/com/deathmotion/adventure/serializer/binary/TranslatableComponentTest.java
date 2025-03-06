@@ -33,31 +33,31 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 
 class TranslatableComponentTest extends ComponentTest {
-  private static final String KEY = "multiplayer.player.left";
+    private static final String KEY = "multiplayer.player.left";
 
-  @Test
-  void testNoArgs() {
-    this.test(Component.translatable(KEY));
-  }
+    @Test
+    void testNoArgs() {
+        this.test(Component.translatable(KEY));
+    }
 
-  @Test
-  void testSingleArgWithEvents() {
-    final UUID id = UUID.fromString("eb121687-8b1a-4944-bd4d-e0a818d9dfe2");
-    final String name = "kashike";
-    final String command = String.format("/msg %s ", name);
+    @Test
+    void testSingleArgWithEvents() {
+        final UUID id = UUID.fromString("eb121687-8b1a-4944-bd4d-e0a818d9dfe2");
+        final String name = "kashike";
+        final String command = String.format("/msg %s ", name);
 
-    this.test(
-      Component.translatable(
-        KEY,
-        Component.text().content(name)
-          .clickEvent(ClickEvent.suggestCommand(command))
-          .hoverEvent(HoverEvent.showEntity(HoverEvent.ShowEntity.of(
-            Key.key("minecraft", "player"),
-            id,
-            Component.text(name)
-          )))
-          .build()
-      ).color(NamedTextColor.YELLOW)
-    );
-  }
+        this.test(
+                Component.translatable(
+                        KEY,
+                        Component.text().content(name)
+                                .clickEvent(ClickEvent.suggestCommand(command))
+                                .hoverEvent(HoverEvent.showEntity(HoverEvent.ShowEntity.of(
+                                        Key.key("minecraft", "player"),
+                                        id,
+                                        Component.text(name)
+                                )))
+                                .build()
+                ).color(NamedTextColor.YELLOW)
+        );
+    }
 }

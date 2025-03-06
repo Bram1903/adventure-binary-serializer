@@ -8,33 +8,34 @@ import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.Style;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Range;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-/*package-private*/ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
+final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
+
+    static final BinaryComponentSerializerImpl INSTANCE = new BinaryComponentSerializerImpl();
 
     private static final byte VERSION = 1;
 
-    private static final byte COMPONENT_TEXT =         0;
+    private static final byte COMPONENT_TEXT = 0;
     private static final byte COMPONENT_TRANSLATABLE = 1;
-    private static final byte COMPONENT_SCORE =        2;
-    private static final byte COMPONENT_SELECTOR =     3;
-    private static final byte COMPONENT_KEYBIND =      4;
-    private static final byte COMPONENT_BLOCK_NBT =    5;
-    private static final byte COMPONENT_ENTITY_NBT =   6;
-    private static final byte COMPONENT_STORAGE_NBT =  7;
+    private static final byte COMPONENT_SCORE = 2;
+    private static final byte COMPONENT_SELECTOR = 3;
+    private static final byte COMPONENT_KEYBIND = 4;
+    private static final byte COMPONENT_BLOCK_NBT = 5;
+    private static final byte COMPONENT_ENTITY_NBT = 6;
+    private static final byte COMPONENT_STORAGE_NBT = 7;
 
-    private static final byte STYLE_COLOR_SHIFT =      0;
-    private static final byte STYLE_FONT_SHIFT =       1;
-    private static final byte STYLE_INSERTION_SHIFT =  2;
+    private static final byte STYLE_COLOR_SHIFT = 0;
+    private static final byte STYLE_FONT_SHIFT = 1;
+    private static final byte STYLE_INSERTION_SHIFT = 2;
     private static final byte STYLE_CLICK_EVENT_SHIFT;
     private static final byte STYLE_HOVER_EVENT_SHIFT;
 
@@ -43,26 +44,6 @@ import java.util.UUID;
     private static final byte STYLE_INSERTION_MASK = 1 << STYLE_INSERTION_SHIFT;
     private static final byte STYLE_CLICK_EVENT_MASK;
     private static final byte STYLE_HOVER_EVENT_MASK;
-
-    private static int log2(int in) {
-        int r = 0;
-        while ((in >>>= 1) != 0) r++;
-        return r;
-    }
-
-    static {
-        STYLE_CLICK_EVENT_SHIFT = STYLE_INSERTION_SHIFT + 1;
-        int clickBits = log2(ClickEvent.Action.values().length) + 1;
-        STYLE_CLICK_EVENT_MASK = (byte)(((1 << clickBits) - 1) << STYLE_CLICK_EVENT_SHIFT);
-
-        STYLE_HOVER_EVENT_SHIFT = (byte)(STYLE_CLICK_EVENT_SHIFT + clickBits);
-        int hoverBits = log2(HoverEvent.Action.NAMES.keys().size()) + 1;
-        STYLE_HOVER_EVENT_MASK = (byte)(((1 << hoverBits) - 1) << STYLE_HOVER_EVENT_SHIFT);
-
-        // Ensure everything fits into a byte
-        assert STYLE_CLICK_EVENT_SHIFT + clickBits + hoverBits <= 8;
-    }
-
     private static final TextDecoration[] DECORATIONS = {
             TextDecoration.BOLD,
             TextDecoration.ITALIC,
@@ -71,11 +52,56 @@ import java.util.UUID;
             TextDecoration.OBFUSCATED
     };
 
-    // region [Serialize]
+    static {
+        STYLE_CLICK_EVENT_SHIFT = STYLE_INSERTION_SHIFT + 1;
+        int clickBits = log2(ClickEvent.Action.values().length) + 1;
+        STYLE_CLICK_EVENT_MASK = (byte) (((1 << clickBits) - 1) << STYLE_CLICK_EVENT_SHIFT);
+
+        STYLE_HOVER_EVENT_SHIFT = (byte) (STYLE_CLICK_EVENT_SHIFT + clickBits);
+        int hoverBits = log2(HoverEvent.Action.NAMES.keys().size()) + 1;
+        STYLE_HOVER_EVENT_MASK = (byte) (((1 << hoverBits) - 1) << STYLE_HOVER_EVENT_SHIFT);
+
+        // Ensure everything fits into a byte
+        assert STYLE_CLICK_EVENT_SHIFT + clickBits + hoverBits <= 8;
+    }
+
+    public final byte SIGN_MASK = (byte) 0b01000000;
+    public final byte MORE_MASK = (byte) 0b10000000;
+
+    private static int log2(int in) {
+        int r = 0;
+        while ((in >>>= 1) != 0) r++;
+        return r;
+    }
 
     @Override
-    public void serializeComponent(Component value, DataOutputStream output) throws IOException {
-        this.serializeComponent(value, output, true);
+    public byte @NotNull [] serialize(@NotNull Component component) throws IOException {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        try (DataOutputStream output = new DataOutputStream(byteArrayOutputStream)) {
+            serialize(component, output);
+        }
+        return byteArrayOutputStream.toByteArray();
+    }
+
+    @Override
+    public @NotNull Component deserialize(byte @NotNull [] bytes) throws IOException {
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes))) {
+            return deserialize(input);
+        }
+    }
+
+    @Override
+    public void serialize(@NotNull Component component, @NotNull DataOutputStream output) throws IOException {
+        output.writeByte(VERSION);
+        serializeComponent(component, output, true);
+    }
+
+    @Override
+    public @NotNull Component deserialize(@NotNull DataInputStream input) throws IOException {
+        if (input.readByte() != VERSION) {
+            throw new IOException("Unsupported binary component version");
+        }
+        return deserializeComponent(input, true);
     }
 
     public void serializeComponent(Component value, DataOutputStream output, boolean header) throws IOException {
@@ -182,9 +208,9 @@ import java.util.UUID;
         }
         if (hoverEvent != null) {
             Object hoverValue = hoverEvent.value();
-            if (hoverValue instanceof HoverEvent.ShowItem)        state |= 0b01 << STYLE_HOVER_EVENT_SHIFT;
+            if (hoverValue instanceof HoverEvent.ShowItem) state |= 0b01 << STYLE_HOVER_EVENT_SHIFT;
             else if (hoverValue instanceof HoverEvent.ShowEntity) state |= 0b10 << STYLE_HOVER_EVENT_SHIFT;
-            else if (hoverValue instanceof Component)             state |= 0b11 << STYLE_HOVER_EVENT_SHIFT;
+            else if (hoverValue instanceof Component) state |= 0b11 << STYLE_HOVER_EVENT_SHIFT;
             else throw new IllegalArgumentException("Don't know how to serialize " + hoverEvent);
         }
 
@@ -272,13 +298,6 @@ import java.util.UUID;
     private void serializeKey(Key key, DataOutputStream output) throws IOException {
         serializeString(key.namespace(), output);
         serializeString(key.value(), output);
-    }
-
-    // endregion [Serialize]
-
-    @Override
-    public Component deserializeComponent(DataInputStream input) throws IOException {
-        return deserializeComponent(input, true);
     }
 
     public Component deserializeComponent(DataInputStream input, boolean header) throws IOException {
@@ -382,7 +401,7 @@ import java.util.UUID;
 
         int decorationValue = input.readByte() & 0xFF;
 
-        for (int i = DECORATIONS.length-1; i >= 0; i--) {
+        for (int i = DECORATIONS.length - 1; i >= 0; i--) {
             TextDecoration decoration = DECORATIONS[i];
             builder.decoration(decoration, TextDecoration.State.values()[decorationValue % 3]);
             decorationValue /= 3;
@@ -454,14 +473,14 @@ import java.util.UUID;
     private BlockNBTComponent.Pos deserializeBlockNbtPos(DataInputStream input) throws IOException {
         return switch (input.readByte()) {
             case 0 -> BlockNBTComponent.WorldPos.worldPos(
-                deserializeCoordinate(input),
-                deserializeCoordinate(input),
-                deserializeCoordinate(input)
+                    deserializeCoordinate(input),
+                    deserializeCoordinate(input),
+                    deserializeCoordinate(input)
             );
             case 1 -> BlockNBTComponent.LocalPos.localPos(
-                input.readDouble(),
-                input.readDouble(),
-                input.readDouble()
+                    input.readDouble(),
+                    input.readDouble(),
+                    input.readDouble()
             );
             default -> throw notSureHowToDeserialize();
         };
@@ -469,8 +488,8 @@ import java.util.UUID;
 
     private BlockNBTComponent.WorldPos.Coordinate deserializeCoordinate(DataInputStream input) throws IOException {
         return BlockNBTComponent.WorldPos.Coordinate.coordinate(
-            deserializeSignedInt(input),
-            BlockNBTComponent.WorldPos.Coordinate.Type.values()[input.readByte()]
+                deserializeSignedInt(input),
+                BlockNBTComponent.WorldPos.Coordinate.Type.values()[input.readByte()]
         );
     }
 
@@ -499,10 +518,7 @@ import java.util.UUID;
         return input.readNBytes(length);
     }
 
-    public static final byte SIGN_MASK = (byte) 0b01000000;
-    public static final byte MORE_MASK = (byte) 0b10000000;
-
-    static int deserializeSignedInt(DataInputStream input) throws IOException {
+    int deserializeSignedInt(DataInputStream input) throws IOException {
         byte b = input.readByte();
         if (b == SIGN_MASK) {
             return input.readInt();
@@ -525,7 +541,7 @@ import java.util.UUID;
         }
     }
 
-    static void serializeSignedInt(int value, DataOutputStream output) throws IOException {
+    void serializeSignedInt(int value, DataOutputStream output) throws IOException {
         if (value == Integer.MIN_VALUE) {
             output.writeByte(SIGN_MASK);
             output.writeInt(value);
@@ -542,7 +558,7 @@ import java.util.UUID;
             output.writeByte(value | neg);
         } else if (value < 0x1fff) {
             output.writeByte((value & 0x3f) | neg | MORE_MASK);
-            output.writeByte( (value & 0x1fff) >>> 6);
+            output.writeByte((value & 0x1fff) >>> 6);
         } else if (value < 0xfffff) {
             output.writeByte((value & 0x3f) | neg | MORE_MASK);
             output.writeByte(((value & 0x1fff) >>> 6) | MORE_MASK);
@@ -558,7 +574,7 @@ import java.util.UUID;
         }
     }
 
-    static int deserializeVarInt(DataInputStream input) throws IOException {
+    int deserializeVarInt(DataInputStream input) throws IOException {
         // https://github.com/jvm-profiling-tools/async-profiler/blob/a38a375dc62b31a8109f3af97366a307abb0fe6f/src/converter/one/jfr/JfrReader.java#L393
         int result = 0;
         for (int shift = 0; ; shift += 7) {
@@ -570,7 +586,7 @@ import java.util.UUID;
         }
     }
 
-    static void serializeVarInt(@Range(from=0, to=Integer.MAX_VALUE) int value, DataOutputStream output) throws IOException {
+    void serializeVarInt(@Range(from = 0, to = Integer.MAX_VALUE) int value, DataOutputStream output) throws IOException {
         if ((value & (0xFFFFFFFF << 7)) == 0) {
             output.writeByte((byte) value);
         } else if ((value & (0xFFFFFFFF << 14)) == 0) {
@@ -589,11 +605,11 @@ import java.util.UUID;
         }
     }
 
-    private static IllegalArgumentException notSureHowToDeserialize() {
+    private IllegalArgumentException notSureHowToDeserialize() {
         return new IllegalArgumentException("Don't know how to turn data into a Component");
     }
 
-    private static IllegalArgumentException notSureHowToSerialize(final Component component) {
+    private IllegalArgumentException notSureHowToSerialize(final Component component) {
         return new IllegalArgumentException("Don't know how to serialize " + component + " as a Component");
     }
 
