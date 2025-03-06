@@ -1,6 +1,7 @@
 package com.deathmotion.adventure.serializer.binary;
 
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.ComponentSerializer;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.DataInputStream;
@@ -10,7 +11,7 @@ import java.io.IOException;
 /**
  * A serializer for converting {@link Component} objects to and from binary format.
  */
-public sealed interface BinaryComponentSerializer permits BinaryComponentSerializerImpl {
+public sealed interface BinaryComponentSerializer extends ComponentSerializer<Component, Component, byte[]> permits BinaryComponentSerializerImpl {
 
     /**
      * Returns a default instance of the {@link BinaryComponentSerializer}.
@@ -26,18 +27,16 @@ public sealed interface BinaryComponentSerializer permits BinaryComponentSeriali
      *
      * @param component the component to serialize
      * @return a byte array containing the serialized component
-     * @throws IOException if an I/O error occurs
      */
-    byte @NotNull [] serialize(@NotNull Component component) throws IOException;
+    byte @NotNull [] serialize(@NotNull Component component);
 
     /**
      * Deserializes a {@link Component} from a byte array.
      *
      * @param bytes the byte array to deserialize
      * @return the deserialized {@link Component}
-     * @throws IOException if an I/O error occurs
      */
-    @NotNull Component deserialize(byte @NotNull [] bytes) throws IOException;
+    @NotNull Component deserialize(byte @NotNull [] bytes);
 
     /**
      * Serializes a {@link Component} into a {@link DataOutputStream}.

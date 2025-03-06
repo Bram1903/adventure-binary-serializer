@@ -164,18 +164,22 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
     //–––––– API entry points ––––––
 
     @Override
-    public byte @NotNull [] serialize(@NotNull Component component) throws IOException {
+    public byte @NotNull [] serialize(@NotNull Component component) {
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
         try (DataOutputStream output = new DataOutputStream(byteArrayOutputStream)) {
             serialize(component, output);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
         return byteArrayOutputStream.toByteArray();
     }
 
     @Override
-    public @NotNull Component deserialize(byte @NotNull [] bytes) throws IOException {
+    public @NotNull Component deserialize(byte @NotNull [] bytes) {
         try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes))) {
             return deserialize(input);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
