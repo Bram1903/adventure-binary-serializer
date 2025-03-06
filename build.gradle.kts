@@ -15,6 +15,7 @@ dependencies {
 	testImplementation(libs.adventure.nbt)
 	testImplementation(libs.junit.jupiter.api)
 	testRuntimeOnly(libs.junit.jupiter.engine)
+	testRuntimeOnly(libs.junit.jupiter.platform.launcher)
 }
 
 group = "com.deathmotion.adventure.binary.serializer"

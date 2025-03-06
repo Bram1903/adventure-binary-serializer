@@ -43,7 +43,7 @@ class ShowItemSerializerTest extends ComponentTest {
     void testDeserializeWithPopulatedTag() throws IOException {
         CompoundBinaryTag compound = CompoundBinaryTag.builder()
                 .put("display", CompoundBinaryTag.builder()
-                        .put("Name", StringBinaryTag.of("A test!"))
+                        .put("Name", StringBinaryTag.stringBinaryTag("A test!"))
                         .build())
                 .build();
 
@@ -58,7 +58,7 @@ class ShowItemSerializerTest extends ComponentTest {
 
     @Test
     void testDeserializeWithNullTag() {
-        HoverEventSource<?> hoverEvent = HoverEvent.showItem(item, 1, null);
+        HoverEventSource<?> hoverEvent = HoverEvent.showItem(item, 1);
 
         this.test(
                 Component.text("jhas9").style(Style.style().hoverEvent(hoverEvent).build())
