@@ -10,7 +10,6 @@ import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.intellij.lang.annotations.Subst;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Range;
 
 import java.io.*;
@@ -54,6 +53,7 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
     };
 
     static {
+        // Compute bit-width for click and hover events using a fast log2:
         STYLE_CLICK_EVENT_SHIFT = STYLE_INSERTION_SHIFT + 1;
         int clickBits = log2(ClickEvent.Action.values().length) + 1;
         STYLE_CLICK_EVENT_MASK = (((1 << clickBits) - 1) << STYLE_CLICK_EVENT_SHIFT);
@@ -62,15 +62,15 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
         int hoverBits = log2(HoverEvent.Action.NAMES.keys().size()) + 1;
         STYLE_HOVER_EVENT_MASK = (((1 << hoverBits) - 1) << STYLE_HOVER_EVENT_SHIFT);
 
-        // Ensure everything fits into a short (16 bits)
+        // Ensure the state fits in 16 bits.
         assert STYLE_CLICK_EVENT_SHIFT + clickBits + hoverBits <= 16 : "Shift + clickBits + hoverBits exceeds 16: " + (STYLE_CLICK_EVENT_SHIFT + clickBits + hoverBits);
     }
 
-    private static int log2(int in) {
-        int r = 0;
-        while ((in >>>= 1) != 0) r++;
-        return r;
+    private static int log2(int value) {
+        return 31 - Integer.numberOfLeadingZeros(value);
     }
+
+    //–––––– SIGNED INT (de)serialization ––––––
 
     static int deserializeSignedInt(DataInputStream input) throws IOException {
         byte b = input.readByte();
@@ -128,6 +128,8 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
         }
     }
 
+    //–––––– VARINT (de)serialization ––––––
+
     static int deserializeVarInt(DataInputStream input) throws IOException {
         // https://github.com/jvm-profiling-tools/async-profiler/blob/a38a375dc62b31a8109f3af97366a307abb0fe6f/src/converter/one/jfr/JfrReader.java#L393
         int result = 0;
@@ -159,6 +161,8 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
         }
     }
 
+    //–––––– API entry points ––––––
+
     @Override
     public byte @NotNull [] serialize(@NotNull Component component) throws IOException {
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
@@ -189,6 +193,8 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
         return deserializeComponent(input, true);
     }
 
+    //–––––– Component (de)serialization ––––––
+
     public void serializeComponent(Component value, DataOutputStream output, boolean header) throws IOException {
         if (header) {
             output.writeByte(VERSION);
@@ -200,9 +206,9 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
         } else if (value instanceof TranslatableComponent translatable) {
             output.writeByte(COMPONENT_TRANSLATABLE);
             serializeString(translatable.key(), output);
-
-            output.writeByte((byte) translatable.args().size());
-            for (Component arg : translatable.args()) {
+            List<Component> args = translatable.args();
+            output.writeByte(args.size());
+            for (Component arg : args) {
                 serializeComponent(arg, output, false);
             }
         } else if (value instanceof ScoreComponent score) {
@@ -212,34 +218,27 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
         } else if (value instanceof SelectorComponent selector) {
             output.writeByte(COMPONENT_SELECTOR);
             serializeString(selector.pattern(), output);
-
             serializeOptional(selector.separator(), output);
         } else if (value instanceof KeybindComponent keybind) {
             output.writeByte(COMPONENT_KEYBIND);
             serializeString(keybind.keybind(), output);
         } else if (value instanceof BlockNBTComponent nbt) {
             output.writeByte(COMPONENT_BLOCK_NBT);
-
             serializeString(nbt.nbtPath(), output);
             output.writeBoolean(nbt.interpret());
             serializeOptional(nbt.separator(), output);
-
             serializeBlockNbtPos(nbt.pos(), output);
         } else if (value instanceof EntityNBTComponent nbt) {
             output.writeByte(COMPONENT_ENTITY_NBT);
-
             serializeString(nbt.nbtPath(), output);
             output.writeBoolean(nbt.interpret());
             serializeOptional(nbt.separator(), output);
-
             serializeString(nbt.selector(), output);
         } else if (value instanceof StorageNBTComponent nbt) {
             output.writeByte(COMPONENT_STORAGE_NBT);
-
             serializeString(nbt.nbtPath(), output);
             output.writeBoolean(nbt.interpret());
             serializeOptional(nbt.separator(), output);
-
             serializeKey(nbt.storage(), output);
         } else {
             throw notSureHowToSerialize(value);
@@ -267,58 +266,63 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
     }
 
     private void serializeStyle(Style value, DataOutputStream output) throws IOException {
+        // Compute decoration state
         int decorationValue = 0;
-
         for (TextDecoration decoration : DECORATIONS) {
-            decorationValue *= 3;
-            final TextDecoration.State state = value.decoration(decoration);
-            decorationValue += state.ordinal();
+            decorationValue = decorationValue * 3 + value.decoration(decoration).ordinal();
         }
-
         output.writeByte(decorationValue);
 
-        final @Nullable TextColor color = value.color();
-        final @Nullable Key font = value.font();
-        final @Nullable String insertion = value.insertion();
-        final @Nullable HoverEvent<?> hoverEvent = value.hoverEvent();
-        final @Nullable ClickEvent clickEvent = value.clickEvent();
+        // Cache optional style fields
+        final TextColor color = value.color();
+        final Key font = value.font();
+        final String insertion = value.insertion();
+        final ClickEvent clickEvent = value.clickEvent();
+        final HoverEvent<?> hoverEvent = value.hoverEvent();
 
-        // Use an int for the state so that we can pack into a short
+        // Build state bitmask
         int state = 0;
-        if (color != null) state |= STYLE_COLOR_MASK;
-        if (font != null) state |= STYLE_FONT_MASK;
-        if (insertion != null) state |= STYLE_INSERTION_MASK;
+        if (color != null) {
+            state |= STYLE_COLOR_MASK;
+        }
+        if (font != null) {
+            state |= STYLE_FONT_MASK;
+        }
+        if (insertion != null) {
+            state |= STYLE_INSERTION_MASK;
+        }
         if (clickEvent != null) {
             state |= ((clickEvent.action().ordinal() + 1) << STYLE_CLICK_EVENT_SHIFT);
         }
         if (hoverEvent != null) {
             Object hoverValue = hoverEvent.value();
-            if (hoverValue instanceof HoverEvent.ShowItem) state |= (0b01 << STYLE_HOVER_EVENT_SHIFT);
-            else if (hoverValue instanceof HoverEvent.ShowEntity) state |= (0b10 << STYLE_HOVER_EVENT_SHIFT);
-            else if (hoverValue instanceof Component) state |= (0b11 << STYLE_HOVER_EVENT_SHIFT);
-            else throw new IllegalArgumentException("Don't know how to serialize " + hoverEvent);
+            if (hoverValue instanceof HoverEvent.ShowItem) {
+                state |= (0b01 << STYLE_HOVER_EVENT_SHIFT);
+            } else if (hoverValue instanceof HoverEvent.ShowEntity) {
+                state |= (0b10 << STYLE_HOVER_EVENT_SHIFT);
+            } else if (hoverValue instanceof Component) {
+                state |= (0b11 << STYLE_HOVER_EVENT_SHIFT);
+            } else {
+                throw new IllegalArgumentException("Don't know how to serialize " + hoverEvent);
+            }
         }
-
         output.writeShort(state);
 
+        // Serialize non-null fields
         if (color != null) {
             output.writeByte(color.red());
             output.writeByte(color.green());
             output.writeByte(color.blue());
         }
-
         if (font != null) {
             serializeKey(font, output);
         }
-
         if (insertion != null) {
             serializeString(insertion, output);
         }
-
         if (clickEvent != null) {
             serializeString(clickEvent.value(), output);
         }
-
         if (hoverEvent != null) {
             Object hoverValue = hoverEvent.value();
             if (hoverValue instanceof HoverEvent.ShowItem showItem) {
@@ -333,24 +337,19 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
         }
     }
 
+
     private void serializeShowItem(HoverEvent.ShowItem value, DataOutputStream output) throws IOException {
         serializeKey(value.item(), output);
         output.writeByte((byte) value.count());
-
-        final @Nullable BinaryTagHolder nbt = value.nbt();
-        if (nbt != null) {
-            serializeString(nbt.string(), output);
-        } else {
-            serializeString("", output);
-        }
+        BinaryTagHolder nbt = value.nbt();
+        serializeString(nbt != null ? nbt.string() : "", output);
     }
 
     private void serializeShowEntity(HoverEvent.ShowEntity value, DataOutputStream output) throws IOException {
         serializeKey(value.type(), output);
         output.writeLong(value.id().getMostSignificantBits());
         output.writeLong(value.id().getLeastSignificantBits());
-
-        final @Nullable Component name = value.name();
+        Component name = value.name();
         if (name != null) {
             output.writeBoolean(true);
             serializeComponent(name, output, false);
@@ -383,73 +382,90 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
         serializeString(key.value(), output);
     }
 
+    public void serializeString(String value, DataOutputStream output) throws IOException {
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        serializeVarInt(bytes.length, output);
+        output.write(bytes);
+    }
+
+    @Subst("default_string")
+    public String deserializeString(DataInputStream input) throws IOException {
+        return new String(deserializeBytes(input), StandardCharsets.UTF_8);
+    }
+
+    public byte[] deserializeBytes(DataInputStream input) throws IOException {
+        int length = deserializeVarInt(input);
+        return input.readNBytes(length);
+    }
+
+    private IllegalArgumentException notSureHowToDeserialize() {
+        return new IllegalArgumentException("Don't know how to turn data into a Component");
+    }
+
+    private IllegalArgumentException notSureHowToSerialize(final Component component) {
+        return new IllegalArgumentException("Don't know how to serialize " + component + " as a Component");
+    }
+
     public Component deserializeComponent(DataInputStream input, boolean header) throws IOException {
         if (header) {
-            if (VERSION != input.readByte()) {
+            if (input.readByte() != VERSION) {
                 throw new IllegalStateException("Wrong version! Can't deserialize");
             }
         }
 
         byte componentType = input.readByte();
-        ComponentBuilder<?, ?> builder = switch (componentType) {
-            case COMPONENT_TEXT -> Component.text()
-                    .content(deserializeString(input));
+        ComponentBuilder<?, ?> builder;
+        switch (componentType) {
+            case COMPONENT_TEXT -> builder = Component.text().content(deserializeString(input));
             case COMPONENT_TRANSLATABLE -> {
-                var translatable = Component.translatable()
-                        .key(deserializeString(input));
-                byte argsCount = input.readByte();
+                var translatable = Component.translatable().key(deserializeString(input));
+                int argsCount = input.readByte();
                 List<Component> args = new ArrayList<>(argsCount);
                 for (int i = 0; i < argsCount; i++) {
                     args.add(deserializeComponent(input, false));
                 }
                 translatable.args(args);
-                yield translatable;
+                builder = translatable;
             }
-            case COMPONENT_SCORE -> Component.score()
-                    .name(deserializeString(input))
+            case COMPONENT_SCORE -> builder = Component.score().name(deserializeString(input))
                     .objective(deserializeString(input));
             case COMPONENT_SELECTOR -> {
-                var selector = Component.selector()
-                        .pattern(deserializeString(input));
+                var selector = Component.selector().pattern(deserializeString(input));
                 if (input.readBoolean()) {
                     selector.separator(deserializeComponent(input, false));
                 }
-                yield selector;
+                builder = selector;
             }
-            case COMPONENT_KEYBIND -> Component.keybind()
-                    .keybind(deserializeString(input));
+            case COMPONENT_KEYBIND -> builder = Component.keybind().keybind(deserializeString(input));
             case COMPONENT_BLOCK_NBT -> {
-                var block = Component.blockNBT()
-                        .nbtPath(deserializeString(input))
+                var block = Component.blockNBT().nbtPath(deserializeString(input))
                         .interpret(input.readBoolean());
                 if (input.readBoolean()) {
                     block.separator(deserializeComponent(input, false));
                 }
                 block.pos(deserializeBlockNbtPos(input));
-                yield block;
+                builder = block;
             }
             case COMPONENT_ENTITY_NBT -> {
-                var entity = Component.entityNBT()
-                        .nbtPath(deserializeString(input))
+                var entity = Component.entityNBT().nbtPath(deserializeString(input))
                         .interpret(input.readBoolean());
                 if (input.readBoolean()) {
                     entity.separator(deserializeComponent(input, false));
                 }
                 entity.selector(deserializeString(input));
-                yield entity;
+                builder = entity;
             }
             case COMPONENT_STORAGE_NBT -> {
-                var storage = Component.storageNBT()
-                        .nbtPath(deserializeString(input))
+                var storage = Component.storageNBT().nbtPath(deserializeString(input))
                         .interpret(input.readBoolean());
                 if (input.readBoolean()) {
                     storage.separator(deserializeComponent(input, false));
                 }
                 storage.storage(deserializeKey(input));
-                yield storage;
+                builder = storage;
             }
             default -> throw notSureHowToDeserialize();
-        };
+        }
 
         int data = deserializeVarInt(input);
         if ((data & 1) != 0) {
@@ -463,7 +479,7 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
     }
 
     private Style deserializeStyle(DataInputStream input) throws IOException {
-        final var builder = Style.style();
+        var builder = Style.style();
         int decorationValue = input.readByte() & 0xFF;
         for (int i = DECORATIONS.length - 1; i >= 0; i--) {
             TextDecoration decoration = DECORATIONS[i];
@@ -472,9 +488,10 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
         }
 
         int state = input.readShort() & 0xFFFF;
-
         if ((state & STYLE_COLOR_MASK) != 0) {
-            int color = ((input.readByte() & 0xFF) << 16) | ((input.readByte() & 0xFF) << 8) | (input.readByte() & 0xFF);
+            int color = ((input.readByte() & 0xFF) << 16)
+                    | ((input.readByte() & 0xFF) << 8)
+                    | (input.readByte() & 0xFF);
             builder.color(TextColor.color(color));
         }
         if ((state & STYLE_FONT_MASK) != 0) {
@@ -492,13 +509,12 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
         }
         if ((state & STYLE_HOVER_EVENT_MASK) != 0) {
             int hoverActionId = ((state & STYLE_HOVER_EVENT_MASK) >>> STYLE_HOVER_EVENT_SHIFT) - 1;
-            var hover = switch (hoverActionId) {
+            builder.hoverEvent(switch (hoverActionId) {
                 case 0 -> HoverEvent.showItem(deserializeShowItem(input));
                 case 1 -> HoverEvent.showEntity(deserializeShowEntity(input));
                 case 2 -> HoverEvent.showText(deserializeComponent(input, false));
                 default -> throw notSureHowToDeserialize();
-            };
-            builder.hoverEvent(hover);
+            });
         }
         return builder.build();
     }
@@ -552,32 +568,5 @@ final class BinaryComponentSerializerImpl implements BinaryComponentSerializer {
                 deserializeString(input),
                 deserializeString(input)
         );
-    }
-
-    public void serializeString(String value, DataOutputStream output) throws IOException {
-        serializeBytes(value.getBytes(StandardCharsets.UTF_8), output);
-    }
-
-    @Subst("default_string")
-    public String deserializeString(DataInputStream input) throws IOException {
-        return new String(deserializeBytes(input), StandardCharsets.UTF_8);
-    }
-
-    public void serializeBytes(byte[] value, DataOutputStream output) throws IOException {
-        serializeVarInt(value.length, output);
-        output.write(value);
-    }
-
-    public byte[] deserializeBytes(DataInputStream input) throws IOException {
-        int length = deserializeVarInt(input);
-        return input.readNBytes(length);
-    }
-
-    private IllegalArgumentException notSureHowToDeserialize() {
-        return new IllegalArgumentException("Don't know how to turn data into a Component");
-    }
-
-    private IllegalArgumentException notSureHowToSerialize(final Component component) {
-        return new IllegalArgumentException("Don't know how to serialize " + component + " as a Component");
     }
 }
